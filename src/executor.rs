@@ -8,12 +8,10 @@ use thiserror::Error;
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, Eq)]
 pub struct Executor {
-    name: String,
-    environment: Option<String>,
     command: String,
 }
 
-#[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct Executors {
     executors: HashMap<String, Executor>,
 }
@@ -21,7 +19,6 @@ pub struct Executors {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ExecutorInput {
     name: String,
-    environment: Option<String>,
     input: String,
 }
 
@@ -106,9 +103,6 @@ impl ExecutorInput {
                     "executor" => {
                         result.name = value.trim().to_string();
                     }
-                    "environment" => {
-                        result.environment = Some(value.trim().to_string());
-                    }
                     _ => unimplemented!(),
                 }
             } else {
@@ -140,7 +134,30 @@ impl Executor {
     }
 }
 
+impl Default for Executors {
+    fn default() -> Self {
+        Self {
+            executors: HashMap::from([(
+                "echo".to_string(),
+                Executor {
+                    command: "echo {{ input }}".to_string(),
+                },
+            )]),
+        }
+    }
+}
+
 impl Executors {
+    pub fn new() -> Result<Self, config::ConfigError> {
+        let raw_settings = config::Config::builder()
+            .add_source(config::File::with_name("executors"))
+            .build()?;
+
+        let parsed_settings = raw_settings.try_deserialize::<Self>()?;
+
+        Ok(parsed_settings)
+    }
+
     pub fn execute_from_slack_message(&self, message: &str) -> Result<(), ExecutorExecuteError> {
         if self.executors.is_empty() {
             return Err(ExecutorExecuteError::NoAvailableExecutors);
@@ -165,13 +182,12 @@ mod tests {
 
     #[test]
     fn test_executor_input_parse_message() -> Result<(), ParseCodeBlockError> {
-        let text = "# executor: psql\n# environment: DEV\nselect * from status;";
+        let text = "# executor: psql\nselect * from status;";
         let result = ExecutorInput::parse_code_block(text)?;
         assert_eq!(
             result,
             ExecutorInput {
                 name: "psql".to_string(),
-                environment: Some("DEV".to_string()),
                 input: "select * from status;".to_string(),
             }
         );
@@ -180,7 +196,7 @@ mod tests {
 
     #[test]
     fn test_executor_input_parse_message_error_split_failure() {
-        let text = "# executor psql\n# environment: DEV\nselect * from status;";
+        let text = "# executor psql\nselect * from status;";
         let result = ExecutorInput::parse_code_block(text);
 
         let e = result.unwrap_err();
@@ -194,10 +210,10 @@ mod tests {
     // #[test]
     // fn executor_extract_code_block() {
     //     let text =
-    //         "```# executor: psql\n# environment: DEV\nselect * from status;```\nsome message";
+    //         "```# executor: psql\nselect * from status;```\nsome message";
     //     assert_eq!(
     //         Executor::extract_code_block_from_slack_message(text).unwrap(),
-    //         "# executor: psql\n# environment: DEV\nselect * from status;"
+    //         "# executor: psql\nselect * from status;"
     //     );
     // }
 }
