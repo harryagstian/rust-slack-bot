@@ -2,22 +2,26 @@ use std::collections::HashMap;
 
 use serde::{Serialize, Deserialize};
 
+use crate::executor::Executors;
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Config {
     pub env: String,
     pub slack: SlackConfig,
-    pub executors: Vec<crate::executor::Executor>,
+    pub executors: Executors,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SlackConfig {
-    pub token: HashMap<SlackToken, String>
+    pub secret: HashMap<SlackSecret, String>
 }
 
 #[derive(Hash, Eq, PartialEq, Serialize, Deserialize, Debug, Clone)]
-pub enum SlackToken {
+pub enum SlackSecret {
     #[serde(rename = "websocket")]
-    Websocket
+    Websocket,
+    #[serde(rename = "webhook_url")]
+    WebhookURL,
 }
 
 impl Config {

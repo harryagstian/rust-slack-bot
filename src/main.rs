@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use log::{info, debug};
+use log::{info};
 use rust_slack_bot::config::Config;
 use rust_slack_bot::logger::Logger;
 use rust_slack_bot::slack::Slack;

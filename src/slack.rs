@@ -1,12 +1,12 @@
 use std::{collections::HashMap, net::TcpStream};
 
 use crate::{
-    config::{SlackConfig, SlackToken},
-    executor::Executor,
+    config::{SlackConfig, SlackSecret},
+    executor::{Executors},
 };
 use log::info;
 use reqwest::header::CONTENT_TYPE;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize};
 use serde_json::{from_str, json, Value};
 use tungstenite::{connect, stream::MaybeTlsStream, Message, WebSocket};
 
@@ -109,24 +109,28 @@ struct ReactionItem {
 pub struct Slack {
     config: SlackConfig,
     websocket_url: String,
+    webhook_url: String,
 }
 
 impl Slack {
     pub async fn new(config: SlackConfig) -> Result<Self, reqwest::Error> {
         let websocket_url =
-            Self::get_websocket_address(config.token.get(&SlackToken::Websocket).unwrap()).await?;
+            Self::get_websocket_address(config.secret.get(&SlackSecret::Websocket).unwrap()).await?;
 
+        // this is safe to unwrap since its already checked by serde during config read
+        let webhook_url = config.secret.get(&SlackSecret::WebhookURL).unwrap().to_owned();
         Ok(Slack {
             config,
             websocket_url,
+            webhook_url,
         })
     }
 
-    async fn get_websocket_address(token: &String) -> Result<String, reqwest::Error> {
+    async fn get_websocket_address(secret: &String) -> Result<String, reqwest::Error> {
         let url = "https://slack.com/api/apps.connections.open";
         let res = reqwest::Client::new()
             .post(url)
-            .bearer_auth(token)
+            .bearer_auth(secret)
             .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
             .send()
             .await?;
@@ -148,7 +152,7 @@ impl Slack {
         Ok(())
     }
 
-    pub fn listen_websocket(&self, executors: Vec<Executor>) -> Result<(), tungstenite::Error> {
+    pub fn listen_websocket(&self, executors: Executors) -> Result<(), tungstenite::Error> {
         let (mut socket, response) = connect(&self.websocket_url)?;
 
         info!("Connected to the server");
@@ -168,7 +172,7 @@ impl Slack {
 
             let raw_text = &raw_message.into_text().unwrap();
             let message = from_str::<SlackWebsocketMessage>(raw_text)
-                .expect(format!("Unexpected message format. Raw message: {}", &raw_text).as_str());
+                .unwrap_or_else(|_| panic!("Unexpected message format. Raw message: {}", &raw_text));
 
             match message {
                 SlackWebsocketMessage::NormalMessage {
@@ -179,6 +183,7 @@ impl Slack {
                     SlackWebsocketMessagePayloadEvent::AppMention { text, .. }
                     | SlackWebsocketMessagePayloadEvent::ChannelMessageSent { text, .. } => {
                         info!("Received channel message [{}]: {:?}", envelope_id, text);
+                        executors.execute_from_slack_message(&text);
                         Self::ack_message(&mut socket, &envelope_id)?;
                     }
                     SlackWebsocketMessagePayloadEvent::ReactionUpdated {
@@ -197,5 +202,9 @@ impl Slack {
         }
         Ok(())
         // socket.close(None);
+    }
+
+    pub fn send_response(&self, _message: &str) {
+
     }
 }
